@@ -1,6 +1,6 @@
 # Folder Organizer
 
-A small Python script that cleans up a messy folder, like your Downloads folder.
+This is a Python script that cleans up a messy folder, like your Downloads folder.
 
 It looks at each file and moves it into the right folder:
 
@@ -20,7 +20,7 @@ It looks at each file and moves it into the right folder:
 
 ## What you need
 Python 3.8 or newer. You don't need to install anything else.
-
+e
 ## How to use it
 
 Clean your Downloads folder:

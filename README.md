@@ -26,6 +26,11 @@ e
 Move exact duplicate files into a Duplicates folder (nothing is deleted):
 ```
 python3 organize.py --dedupe
+
+Put images and videos into month folders (like Images/2026-03):
+```
+python3 organize.py --by-date
+```
 ```
 
 Clean your Downloads folder:
@@ -46,10 +51,22 @@ python organize.py --dry-run
 Put everything back the way it was:
 ```
 python organize.py --undo
+
 ```
 
 ## Change the folders
 Open `organize.py` and edit the `CATEGORIES` list near the top. You can add new file types or new folders there.
 
 ## License
+## Run it automatically
+You can make your computer clean a folder every day with cron (Linux).
+
+1. Open your schedule: `crontab -e`
+2. Add this line (change the paths to match your computer). It runs every day at 9 am:
+```
+0 9 * * * /usr/bin/python3 /home/YOUR_NAME/organize.py /home/YOUR_NAME/Downloads --by-date >> /home/YOUR_NAME/organize-cron.log 2>&1
+```
+3. Save and exit. To see what it did, open `organize-cron.log`.
+
+Your computer needs to be on at that time.
 MIT

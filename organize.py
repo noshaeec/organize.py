@@ -35,6 +35,7 @@ FALLBACK = "Others"  # unknown extensions; set to None to leave them in place
 PARTIAL_DOWNLOADS = {".crdownload", ".part", ".tmp", ".download"}
 UNDO_LOG = ".organize_log.json"
 DUPLICATES = "Duplicates"
+DATE_SORTED = {"Images", "Videos"}  # these get month folders with --by-date
 
 # Reverse lookup: extension -> category
 EXT_MAP = {ext: cat for cat, exts in CATEGORIES.items() for ext in exts}
@@ -75,7 +76,7 @@ class DuplicateFinder:
         for category in list(CATEGORIES) + [FALLBACK]:
             folder = root / category if category else None
             if folder and folder.is_dir():
-                existing += [p for p in folder.iterdir() if p.is_file()]
+               existing += [p for p in folder.rglob("*") if p.is_file()]
 
         for path in existing + list(candidates):
             try:
@@ -99,7 +100,10 @@ class DuplicateFinder:
             return True
         self.known[digest] = path
         return False
-
+    
+def date_folder(path: Path) -> str:
+    """Month folder like 2026-11, taken from the file's last-modified date."""
+    return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m")
 
 def _age_order(entry):
     """Oldest first; on a tie the shorter name wins."""
@@ -109,7 +113,7 @@ def _age_order(entry):
         mtime = 0.0
     return (mtime, len(entry.name), entry.name)
 
-def organize(root: Path, dry_run: bool = False,dedupe: bool = False ) -> dict:
+def organize(root: Path, dry_run: bool = False,dedupe: bool = False, by_date: bool = False) -> dict:
     stats = {"moved": 0, "skipped": 0, "errors": 0}
     moves = []  # (source, destination) pairs for undo
     script_path = Path(__file__).resolve()
@@ -148,19 +152,20 @@ def organize(root: Path, dry_run: bool = False,dedupe: bool = False ) -> dict:
             stats["skipped"] += 1
             continue
 
-        target_dir = root / category
+        subfolder = date_folder(path) if by_date and category in DATE_SORTED else ""
+        target_dir = root / category / subfolder
         dest = unique_destination(target_dir / path.name)
 
         if dry_run:
-            logging.info("[DRY RUN] %s -> %s/%s", path.name, category, dest.name)
+            logging.info("[DRY RUN] %s -> %s/%s", path.name, target_dir.relative_to(root), dest.name)
             stats["moved"] += 1
             continue
 
         try:
-            target_dir.mkdir(exist_ok=True)  # created only when needed
+            target_dir.mkdir(parents=True, exist_ok=True)  # created only when needed
             shutil.move(str(path), str(dest))
             moves.append((str(path), str(dest)))
-            logging.info("Moved %s -> %s/%s", path.name, category, dest.name)
+            logging.info("Moved %s -> %s/%s", path.name, target_dir.relative_to(root), dest.name)
             stats["moved"] += 1
         except PermissionError:
             logging.warning("Permission denied (file locked/in use?): %s", path.name)
@@ -209,6 +214,8 @@ def main():
     parser.add_argument("--undo", action="store_true", help="reverse the last run")
     parser.add_argument("--dedupe", action="store_true",
                         help="move exact duplicate files into a Duplicates folder")
+    parser.add_argument("--by-date", action="store_true",
+                        help="put Images and Videos into month folders like 2026-11")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -219,9 +226,10 @@ def main():
     if args.undo:
         undo(root)
         return
+    
 
-    stats = organize(root, dry_run=args.dry_run, dedupe=args.dedupe)
+    stats = organize(root, dry_run=args.dry_run, dedupe=args.dedupe, by_date=args.by_date)
     logging.info("Done. Moved: %(moved)d | Skipped: %(skipped)d | Errors: %(errors)d", stats)
-
+    
 if __name__ == "__main__":
     main()

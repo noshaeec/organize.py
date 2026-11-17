@@ -12,6 +12,7 @@ It looks at each file and moves it into the right folder:
 - Others (anything else)
 
 ## What it does
+- Finds exact duplicate files and moves the extra copies to a Duplicates folder.
 - Makes the folders for you, only when it needs them.
 - Never replaces a file. If a name is taken, it adds a number, like `report (1).pdf`.
 - If a file is locked or can't be moved, it skips it and keeps going.
@@ -22,6 +23,10 @@ It looks at each file and moves it into the right folder:
 Python 3.8 or newer. You don't need to install anything else.
 e
 ## How to use it
+Move exact duplicate files into a Duplicates folder (nothing is deleted):
+```
+python3 organize.py --dedupe
+```
 
 Clean your Downloads folder:
 ```

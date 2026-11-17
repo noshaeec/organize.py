@@ -17,6 +17,8 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
+import hashlib
+from collections import Counter
 
 CATEGORIES = {
     "Documents": {".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt", ".xls", ".xlsx",
@@ -32,6 +34,7 @@ CATEGORIES = {
 FALLBACK = "Others"  # unknown extensions; set to None to leave them in place
 PARTIAL_DOWNLOADS = {".crdownload", ".part", ".tmp", ".download"}
 UNDO_LOG = ".organize_log.json"
+DUPLICATES = "Duplicates"
 
 # Reverse lookup: extension -> category
 EXT_MAP = {ext: cat for cat, exts in CATEGORIES.items() for ext in exts}
@@ -52,8 +55,61 @@ def unique_destination(dest: Path) -> Path:
             return candidate
         counter += 1
 
+def sha256_of(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    """Hash a file's contents in chunks, so big files don't fill up memory."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(chunk_size), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
-def organize(root: Path, dry_run: bool = False) -> dict:
+
+class DuplicateFinder:
+    """Spots files with exactly the same content, even if the names differ."""
+
+    def __init__(self, root: Path, candidates):
+        self.sizes = Counter()
+        self.known = {}  # content hash -> the file we are keeping
+
+        existing = []
+        for category in list(CATEGORIES) + [FALLBACK]:
+            folder = root / category if category else None
+            if folder and folder.is_dir():
+                existing += [p for p in folder.iterdir() if p.is_file()]
+
+        for path in existing + list(candidates):
+            try:
+                self.sizes[path.stat().st_size] += 1
+            except OSError:
+                pass
+
+        for path in existing:
+            self.is_duplicate(path)  # registers it as an original
+
+    def is_duplicate(self, path: Path) -> bool:
+        try:
+            size = path.stat().st_size
+            if size == 0 or self.sizes[size] < 2:
+                return False  # empty or unique size: can't be a copy
+            digest = sha256_of(path)
+        except OSError as exc:
+            logging.warning("Could not check %s for duplicates: %s", path.name, exc)
+            return False
+        if digest in self.known:
+            return True
+        self.known[digest] = path
+        return False
+
+
+def _age_order(entry):
+    """Oldest first; on a tie the shorter name wins."""
+    try:
+        mtime = entry.stat(follow_symlinks=False).st_mtime
+    except OSError:
+        mtime = 0.0
+    return (mtime, len(entry.name), entry.name)
+
+def organize(root: Path, dry_run: bool = False,dedupe: bool = False ) -> dict:
     stats = {"moved": 0, "skipped": 0, "errors": 0}
     moves = []  # (source, destination) pairs for undo
     script_path = Path(__file__).resolve()
@@ -64,6 +120,12 @@ def organize(root: Path, dry_run: bool = False) -> dict:
         logging.error("No permission to read %s", root)
         stats["errors"] += 1
         return stats
+    
+    finder = None
+    if dedupe:
+        entries.sort(key=_age_order)  # oldest file is kept as the original
+        files = [Path(e.path) for e in entries if e.is_file(follow_symlinks=False)]
+        finder = DuplicateFinder(root, files)
 
     for entry in entries:
         path = Path(entry.path)
@@ -80,6 +142,8 @@ def organize(root: Path, dry_run: bool = False) -> dict:
             continue
 
         category = categorize(path)
+        if finder and finder.is_duplicate(path):
+            category = DUPLICATES
         if category is None:
             stats["skipped"] += 1
             continue
@@ -143,6 +207,8 @@ def main():
     parser.add_argument("directory", nargs="?", default=str(Path.home() / "Downloads"))
     parser.add_argument("--dry-run", action="store_true", help="preview without moving")
     parser.add_argument("--undo", action="store_true", help="reverse the last run")
+    parser.add_argument("--dedupe", action="store_true",
+                        help="move exact duplicate files into a Duplicates folder")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -154,9 +220,8 @@ def main():
         undo(root)
         return
 
-    stats = organize(root, dry_run=args.dry_run)
+    stats = organize(root, dry_run=args.dry_run, dedupe=args.dedupe)
     logging.info("Done. Moved: %(moved)d | Skipped: %(skipped)d | Errors: %(errors)d", stats)
-
 
 if __name__ == "__main__":
     main()

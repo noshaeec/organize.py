@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 import hashlib
 from collections import Counter
+import time
 
 CATEGORIES = {
     "Documents": {".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt", ".xls", ".xlsx",
@@ -113,7 +114,7 @@ def _age_order(entry):
         mtime = 0.0
     return (mtime, len(entry.name), entry.name)
 
-def organize(root: Path, dry_run: bool = False,dedupe: bool = False, by_date: bool = False) -> dict:
+def organize(root: Path, dry_run: bool = False,dedupe: bool = False, by_date: bool = False,min_age: int = 0) -> dict:
     stats = {"moved": 0, "skipped": 0, "errors": 0}
     moves = []  # (source, destination) pairs for undo
     script_path = Path(__file__).resolve()
@@ -142,6 +143,11 @@ def organize(root: Path, dry_run: bool = False,dedupe: bool = False, by_date: bo
             continue
         if path.suffix.lower() in PARTIAL_DOWNLOADS:
             logging.info("Skipping in-progress download: %s", path.name)
+            stats["skipped"] += 1
+            continue
+
+        if is_too_new(path, min_age):
+            logging.info("Skipping recently changed file: %s", path.name)
             stats["skipped"] += 1
             continue
 
@@ -208,6 +214,8 @@ def undo(root: Path):
 
 
 def main():
+    parser.add_argument("--min-age", type=int, default=0, metavar="MINUTES",
+                        help="skip files changed in the last MINUTES minutes")
     parser = argparse.ArgumentParser(description="Organize a directory by file type.")
     parser.add_argument("directory", nargs="?", default=str(Path.home() / "Downloads"))
     parser.add_argument("--dry-run", action="store_true", help="preview without moving")
